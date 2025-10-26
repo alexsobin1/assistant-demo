@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Architecture Diagrams</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #0f0f0f;
+            color: #e0e0e0;
+        }
+        h1 {
+            color: #4ade80;
+            border-bottom: 2px solid #4ade80;
+            padding-bottom: 10px;
+        }
+        .diagram-grid {
+            display: grid;
+            gap: 20px;
+            margin-top: 30px;
+        }
+        .diagram-card {
+            background: #1a1a1a;
+            border: 1px solid #333;
+            border-radius: 8px;
+            padding: 20px;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        .diagram-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 20px rgba(74, 222, 128, 0.1);
+            border-color: #4ade80;
+        }
+        .diagram-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+        .diagram-title {
+            font-size: 1.2em;
+            font-weight: 600;
+            color: #4ade80;
+        }
+        .diagram-id {
+            font-family: 'Courier New', monospace;
+            background: #2a2a2a;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 0.9em;
+            color: #60a5fa;
+        }
+        .diagram-meta {
+            display: flex;
+            gap: 20px;
+            margin: 10px 0;
+            font-size: 0.9em;
+            color: #888;
+        }
+        .diagram-preview {
+            background: #0a0a0a;
+            border: 1px solid #333;
+            border-radius: 4px;
+            padding: 15px;
+            margin: 15px 0;
+            overflow-x: auto;
+        }
+        .diagram-preview pre {
+            margin: 0;
+            color: #60a5fa;
+            font-size: 0.85em;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+        .diagram-actions {
+            display: flex;
+            gap: 10px;
+            margin-top: 15px;
+        }
+        .btn {
+            padding: 8px 16px;
+            border-radius: 6px;
+            text-decoration: none;
+            font-size: 0.9em;
+            transition: all 0.2s;
+            border: 1px solid transparent;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .btn-primary {
+            background: #4ade80;
+            color: #0f0f0f;
+            font-weight: 500;
+        }
+        .btn-primary:hover {
+            background: #22c55e;
+            transform: translateY(-1px);
+        }
+        .btn-secondary {
+            background: #1f2937;
+            color: #e0e0e0;
+            border: 1px solid #374151;
+        }
+        .btn-secondary:hover {
+            background: #374151;
+        }
+        .no-diagrams {
+            text-align: center;
+            padding: 60px 20px;
+            color: #666;
+        }
+        .status {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            padding: 10px 20px;
+            background: #22c55e;
+            color: white;
+            border-radius: 6px;
+            display: none;
+        }
+        .last-updated {
+            text-align: center;
+            color: #666;
+            margin-top: 20px;
+            font-size: 0.85em;
+        }
+    </style>
+</head>
+<body>
+    <h1>🏗️ Architecture Diagrams</h1>
+    
+    <div id="status" class="status"></div>
+    
+    <div id="diagram-list" class="diagram-grid">
+        <div class="no-diagrams">
+            <h2>No diagrams yet</h2>
+            <p>Diagrams created during architecture discussions will appear here.</p>
+        </div>
+    </div>
+    
+    <div class="last-updated">
+        Last refreshed: <span id="last-refresh">Never</span>
+        <button class="btn btn-secondary" onclick="loadDiagrams()">↻ Refresh</button>
+    </div>
+
+    <script>
+        // Store diagrams in localStorage (in production, this would be a database)
+        let diagrams = JSON.parse(localStorage.getItem('architecture-diagrams') || '[]');
+
+        function loadDiagrams() {
+            const container = document.getElementById('diagram-list');
+            diagrams = JSON.parse(localStorage.getItem('architecture-diagrams') || '[]');
+            
+            if (diagrams.length === 0) {
+                container.innerHTML = `
+                    <div class="no-diagrams">
+                        <h2>No diagrams yet</h2>
+                        <p>Diagrams created during architecture discussions will appear here.</p>
+                    </div>
+                `;
+                return;
+            }
+
+            // Sort by date, newest first
+            diagrams.sort((a, b) => new Date(b.created) - new Date(a.created));
+
+            container.innerHTML = diagrams.map(diagram => `
+                <div class="diagram-card">
+                    <div class="diagram-header">
+                        <span class="diagram-title">${diagram.title || 'Untitled Diagram'}</span>
+                        <span class="diagram-id">${diagram.id}</span>
+                    </div>
+                    
+                    <div class="diagram-meta">
+                        <span>📊 ${diagram.type}</span>
+                        <span>🔷 ${diagram.components_count || 0} components</span>
+                        <span>🔗 ${diagram.relationships_count || 0} relationships</span>
+                        <span>📅 ${new Date(diagram.created).toLocaleString()}</span>
+                    </div>
+                    
+                    <div class="diagram-preview">
+                        <pre>${diagram.mermaid_code ? diagram.mermaid_code.substring(0, 300) + '...' : 'No preview available'}</pre>
+                    </div>
+                    
+                    <div class="diagram-actions">
+                        <a href="${diagram.url}" target="_blank" class="btn btn-primary">
+                            🎨 Open in Mermaid Editor
+                        </a>
+                        ${diagram.short_url ? `
+                            <button class="btn btn-secondary" onclick="copyToClipboard('${diagram.short_url}')">
+                                📋 Copy Short URL
+                            </button>
+                        ` : ''}
+                        <button class="btn btn-secondary" onclick="copyToClipboard('${diagram.mermaid_code}')">
+                            📝 Copy Code
+                        </button>
+                    </div>
+                </div>
+            `).join('');
+            
+            document.getElementById('last-refresh').textContent = new Date().toLocaleTimeString();
+        }
+
+        function copyToClipboard(text) {
+            navigator.clipboard.writeText(text).then(() => {
+                showStatus('Copied to clipboard!');
+            });
+        }
+
+        function showStatus(message) {
+            const status = document.getElementById('status');
+            status.textContent = message;
+            status.style.display = 'block';
+            setTimeout(() => {
+                status.style.display = 'none';
+            }, 3000);
+        }
+
+        // Listen for new diagrams from your webhook
+        window.addEventListener('storage', (e) => {
+            if (e.key === 'architecture-diagrams') {
+                loadDiagrams();
+            }
+        });
+
+        // Auto-refresh every 10 seconds
+        setInterval(loadDiagrams, 10000);
+
+        // Load on page load
+        loadDiagrams();
+    </script>
+</body>
+</html>
