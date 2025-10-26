@@ -271,14 +271,31 @@ export default async function handler(req, res) {
     
     const mermaidLiveUrl = `https://mermaid.live/edit#base64:${encoded}`;
 
+    // Create a simple, speakable diagram ID
+    const diagramId = `diagram-${Date.now().toString().slice(-6)}`;
+    
+    // Option 1: Use a URL shortener (TinyURL is free and no API key needed)
+    let shortUrl = mermaidLiveUrl;
+    try {
+      const tinyUrlResponse = await fetch(`https://tinyurl.com/api-create.php?url=${encodeURIComponent(mermaidLiveUrl)}`);
+      if (tinyUrlResponse.ok) {
+        shortUrl = await tinyUrlResponse.text();
+      }
+    } catch (e) {
+      console.log('URL shortening failed, using long URL');
+    }
+
     // Return response that your assistant can speak
     return res.status(200).json({
       success: true,
-      message: `I've created a ${diagram_type} diagram for "${title}". You can view and edit it at the Mermaid Live Editor.`,
+      message: `I've created a ${diagram_type} diagram for "${title}". The diagram ID is ${diagramId}. You can access it at ${shortUrl}`,
       diagram_url: mermaidLiveUrl,
+      short_url: shortUrl,
+      diagram_id: diagramId,
       mermaid_code: mermaidCode,
       components_count: components.length,
-      relationships_count: relationships.length
+      relationships_count: relationships.length,
+      spoken_instructions: `To view the diagram, go to ${shortUrl.replace('https://', '').replace('http://', '')}`
     });
 
   } catch (error) {
