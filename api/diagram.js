@@ -1,7 +1,5 @@
-// Deploy this to Vercel in 2 minutes
-// 1. Save as api/diagram.js in a new folder
-// 2. Run: npx vercel
-// 3. Get your URL like: https://your-app.vercel.app/api/diagram
+// Deploy this to Vercel - Fixed version with proper Mermaid syntax
+// Save as api/diagram.js
 
 export default async function handler(req, res) {
   // Enable CORS for Telnyx
@@ -26,125 +24,252 @@ export default async function handler(req, res) {
   } = req.body;
 
   try {
+    // Helper function to create safe IDs for Mermaid
+    function createSafeId(name, index) {
+      // If already has an ID, use it
+      if (name.id) return name.id;
+      
+      // Otherwise create one from the name
+      const baseName = name.name || name;
+      // Replace spaces and special chars with underscores
+      return baseName.toString()
+        .replace(/[^a-zA-Z0-9]/g, '_')
+        .replace(/^(\d)/, 'n$1') // Prefix with 'n' if starts with number
+        || `node${index}`;
+    }
+
+    // Create a mapping of original names to safe IDs
+    const idMap = {};
+    components.forEach((c, i) => {
+      const originalName = c.name || c;
+      const safeId = createSafeId(c, i);
+      idMap[originalName] = safeId;
+      if (c.id) {
+        idMap[c.id] = safeId;
+      }
+    });
+
     let mermaidCode = '';
     
     // Generate Mermaid diagram based on type
     switch(diagram_type) {
       case 'architecture':
       case 'system':
-        mermaidCode = `graph TB
-    subgraph "${title}"
-${components.map((c, i) => {
-  const id = c.id || `C${i}`;
-  const name = c.name || c;
-  const type = c.type || 'service';
-  
-  if (type === 'database') return `        ${id}[(${name})]`;
-  if (type === 'queue') return `        ${id}{{${name}}}`;
-  if (type === 'user') return `        ${id}(((${name})))`;
-  if (type === 'api') return `        ${id}[/"${name}"\\]`;
-  return `        ${id}[${name}]`;
-}).join('\n')}
-    end
-${relationships.map(r => {
-  const arrow = r.type === 'async' ? '-.->' : '-->';
-  const label = r.label ? `|${r.label}|` : '';
-  return `    ${r.from} ${arrow}${label} ${r.to}`;
-}).join('\n')}`;
+        mermaidCode = `graph TB\n`;
+        if (title) {
+          mermaidCode += `    subgraph "${title}"\n`;
+        }
+        
+        // Add components with safe IDs
+        components.forEach((c, i) => {
+          const safeId = idMap[c.name || c];
+          const label = c.name || c;
+          const type = c.type || 'service';
+          
+          if (type === 'database') {
+            mermaidCode += `        ${safeId}[("${label}")]\n`;
+          } else if (type === 'queue') {
+            mermaidCode += `        ${safeId}{{"${label}"}}\n`;
+          } else if (type === 'user') {
+            mermaidCode += `        ${safeId}((("${label}")))\n`;
+          } else if (type === 'api') {
+            mermaidCode += `        ${safeId}[/"${label}"\\]\n`;
+          } else {
+            mermaidCode += `        ${safeId}["${label}"]\n`;
+          }
+        });
+        
+        if (title) {
+          mermaidCode += `    end\n`;
+        }
+        
+        // Add relationships using safe IDs
+        relationships?.forEach(r => {
+          const fromId = idMap[r.from] || r.from.replace(/[^a-zA-Z0-9]/g, '_');
+          const toId = idMap[r.to] || r.to.replace(/[^a-zA-Z0-9]/g, '_');
+          const arrow = r.type === 'async' ? '-.->' : '-->';
+          
+          if (r.label) {
+            mermaidCode += `    ${fromId} ${arrow}|"${r.label}"| ${toId}\n`;
+          } else {
+            mermaidCode += `    ${fromId} ${arrow} ${toId}\n`;
+          }
+        });
         break;
 
       case 'sequence':
-        mermaidCode = `sequenceDiagram
-    autonumber
-${components.map(c => `    participant ${c.name || c}`).join('\n')}
-${relationships.map(r => {
-  const arrow = r.async ? '->>' : '->';
-  return `    ${r.from}${arrow}${r.to}: ${r.label || r.action || ''}`;
-}).join('\n')}`;
+        mermaidCode = `sequenceDiagram\n`;
+        mermaidCode += `    autonumber\n`;
+        
+        // Add participants with safe aliases
+        components.forEach((c, i) => {
+          const safeId = idMap[c.name || c];
+          const label = c.name || c;
+          mermaidCode += `    participant ${safeId} as ${label}\n`;
+        });
+        
+        // Add interactions
+        relationships?.forEach(r => {
+          const fromId = idMap[r.from] || r.from.replace(/[^a-zA-Z0-9]/g, '_');
+          const toId = idMap[r.to] || r.to.replace(/[^a-zA-Z0-9]/g, '_');
+          const arrow = r.async ? '->>' : '->';
+          const label = r.label || r.action || '';
+          
+          mermaidCode += `    ${fromId}${arrow}${toId}: ${label}\n`;
+          
+          if (r.response) {
+            mermaidCode += `    ${toId}-->>-${fromId}: ${r.response}\n`;
+          }
+        });
         break;
 
       case 'class':
-        mermaidCode = `classDiagram
-${components.map(c => {
-  let classDef = `    class ${c.name} {\n`;
-  if (c.properties) {
-    c.properties.forEach(p => {
-      classDef += `        ${p.visibility || '+'}${p.name}: ${p.type}\n`;
-    });
-  }
-  if (c.methods) {
-    c.methods.forEach(m => {
-      classDef += `        ${m.visibility || '+'}${m.name}(${m.params || ''}) ${m.return || 'void'}\n`;
-    });
-  }
-  classDef += '    }';
-  return classDef;
-}).join('\n')}
-${relationships.map(r => {
-  const relType = {
-    'inherits': '--|>',
-    'implements': '..|>',
-    'aggregation': '--o',
-    'composition': '--*',
-    'association': '--'
-  }[r.type] || '--';
-  return `    ${r.from} ${relType} ${r.to}${r.label ? ' : ' + r.label : ''}`;
-}).join('\n')}`;
+        mermaidCode = `classDiagram\n`;
+        
+        components.forEach(c => {
+          const safeId = idMap[c.name || c];
+          const className = c.name || c;
+          
+          mermaidCode += `    class ${safeId} {\n`;
+          mermaidCode += `        <<${className}>>\n`;
+          
+          if (c.properties) {
+            c.properties.forEach(p => {
+              const visibility = p.visibility || '+';
+              mermaidCode += `        ${visibility}${p.name}: ${p.type}\n`;
+            });
+          }
+          
+          if (c.methods) {
+            c.methods.forEach(m => {
+              const visibility = m.visibility || '+';
+              const params = m.params || '';
+              const returnType = m.return || 'void';
+              mermaidCode += `        ${visibility}${m.name}(${params}) ${returnType}\n`;
+            });
+          }
+          
+          mermaidCode += `    }\n`;
+        });
+        
+        relationships?.forEach(r => {
+          const fromId = idMap[r.from] || r.from.replace(/[^a-zA-Z0-9]/g, '_');
+          const toId = idMap[r.to] || r.to.replace(/[^a-zA-Z0-9]/g, '_');
+          
+          const relType = {
+            'inherits': '--|>',
+            'implements': '..|>',
+            'aggregation': '--o',
+            'composition': '--*',
+            'association': '--'
+          }[r.type] || '--';
+          
+          if (r.label) {
+            mermaidCode += `    ${fromId} ${relType} ${toId} : ${r.label}\n`;
+          } else {
+            mermaidCode += `    ${fromId} ${relType} ${toId}\n`;
+          }
+        });
         break;
 
       case 'deployment':
-        mermaidCode = `graph LR
-    subgraph "Production Environment"
-${components.map((c, i) => {
-  const id = c.id || `C${i}`;
-  const name = c.name || c;
-  if (c.type === 'container') return `        ${id}[[${name}]]`;
-  if (c.type === 'cloud') return `        ${id}(((${name})))`;
-  return `        ${id}[${name}]`;
-}).join('\n')}
-    end
-${relationships.map(r => `    ${r.from} --> ${r.to}`).join('\n')}`;
+        mermaidCode = `graph LR\n`;
+        mermaidCode += `    subgraph Production["Production Environment"]\n`;
+        
+        components.forEach((c, i) => {
+          const safeId = idMap[c.name || c];
+          const label = c.name || c;
+          
+          if (c.type === 'container') {
+            mermaidCode += `        ${safeId}[["${label}"]]\n`;
+          } else if (c.type === 'cloud') {
+            mermaidCode += `        ${safeId}((("${label}")))\n`;
+          } else {
+            mermaidCode += `        ${safeId}["${label}"]\n`;
+          }
+        });
+        
+        mermaidCode += `    end\n`;
+        
+        relationships?.forEach(r => {
+          const fromId = idMap[r.from] || r.from.replace(/[^a-zA-Z0-9]/g, '_');
+          const toId = idMap[r.to] || r.to.replace(/[^a-zA-Z0-9]/g, '_');
+          
+          if (r.label) {
+            mermaidCode += `    ${fromId} -->|"${r.label}"| ${toId}\n`;
+          } else {
+            mermaidCode += `    ${fromId} --> ${toId}\n`;
+          }
+        });
         break;
 
       case 'dataflow':
       case 'data_flow':
-        mermaidCode = `flowchart LR
-${components.map((c, i) => {
-  const id = c.id || `C${i}`;
-  const name = c.name || c;
-  return `    ${id}[${name}]`;
-}).join('\n')}
-${relationships.map(r => {
-  const label = r.label ? `|${r.label}|` : '';
-  return `    ${r.from} -->${label} ${r.to}`;
-}).join('\n')}`;
+        mermaidCode = `flowchart LR\n`;
+        
+        components.forEach((c, i) => {
+          const safeId = idMap[c.name || c];
+          const label = c.name || c;
+          mermaidCode += `    ${safeId}["${label}"]\n`;
+        });
+        
+        relationships?.forEach(r => {
+          const fromId = idMap[r.from] || r.from.replace(/[^a-zA-Z0-9]/g, '_');
+          const toId = idMap[r.to] || r.to.replace(/[^a-zA-Z0-9]/g, '_');
+          
+          if (r.label) {
+            mermaidCode += `    ${fromId} -->|"${r.label}"| ${toId}\n`;
+          } else {
+            mermaidCode += `    ${fromId} --> ${toId}\n`;
+          }
+        });
         break;
 
       default:
         // Default to simple flowchart
-        mermaidCode = `graph TD
-    ${title ? `A[${title}]` : 'A[Start]'}
-${components.map((c, i) => `    ${String.fromCharCode(66 + i)}[${c.name || c}]`).join('\n')}
-${components.map((c, i) => `    ${String.fromCharCode(65 + i)} --> ${String.fromCharCode(66 + i)}`).join('\n')}`;
+        mermaidCode = `graph TD\n`;
+        
+        if (components.length === 0) {
+          mermaidCode += `    Start[Start]\n`;
+          mermaidCode += `    End[End]\n`;
+          mermaidCode += `    Start --> End\n`;
+        } else {
+          components.forEach((c, i) => {
+            const safeId = idMap[c.name || c];
+            const label = c.name || c;
+            mermaidCode += `    ${safeId}["${label}"]\n`;
+            
+            if (i > 0) {
+              const prevId = idMap[components[i-1].name || components[i-1]];
+              mermaidCode += `    ${prevId} --> ${safeId}\n`;
+            }
+          });
+        }
     }
 
     // Add notes if provided
     if (notes) {
-      mermaidCode += `\n    Note: ${notes}`;
+      mermaidCode += `    %% ${notes}\n`;
     }
 
     // Create Mermaid Live Editor URL
     const state = {
       code: mermaidCode,
-      mermaid: { theme: 'default' },
+      mermaid: { 
+        theme: 'default'
+      },
       updateEditor: false,
       autoSync: true,
       updateDiagram: true
     };
     
     const json = JSON.stringify(state);
-    const encoded = Buffer.from(json).toString('base64');
-    const mermaidLiveUrl = `https://mermaid.live/edit#${encoded}`;
+    const encoded = Buffer.from(json).toString('base64')
+      .replace(/\+/g, '-')
+      .replace(/\//g, '_')
+      .replace(/=/g, '');
+    
+    const mermaidLiveUrl = `https://mermaid.live/edit#base64:${encoded}`;
 
     // Return response that your assistant can speak
     return res.status(200).json({
